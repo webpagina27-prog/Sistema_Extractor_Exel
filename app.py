@@ -107,10 +107,12 @@ if uploaded_file is not None:
                 "Por favor, ingresa tu API Key de Gemini en la barra lateral."
             )
         else:
+            tmp_file_path = None
             try:
                 with st.spinner(
                     "Analizando trazos manuscritos y convirtiendo a datos estructurados..."
                 ):
+                    # 1. Escritura segura y aislamiento del archivo temporal
                     suffix = os.path.splitext(uploaded_file.name)[1]
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=suffix
@@ -120,7 +122,12 @@ if uploaded_file is not None:
 
                     client = genai.Client(api_key=api_key)
 
-                    archivo_gemini = client.files.upload(file=tmp_file_path)
+                    # 2. Subida del archivo con captura de error independiente
+                    try:
+                        archivo_gemini = client.files.upload(file=tmp_file_path)
+                    except Exception as upload_err:
+                        st.error(f"Error al cargar el archivo en los servidores de Google: {upload_err}")
+                        st.stop()
 
                     # Prompt diseñado específicamente para OCR manuscrito en formatos
                     prompt = """
@@ -137,9 +144,6 @@ if uploaded_file is not None:
                     response = generar_contenido_manuscrito(
                         client, modelo_seleccionado, archivo_gemini, prompt
                     )
-
-                    if os.path.exists(tmp_file_path):
-                        os.remove(tmp_file_path)
 
                     datos_json = json.loads(response.text)
 
@@ -179,6 +183,14 @@ if uploaded_file is not None:
 
             except Exception as e:
                 st.error(f"Error durante el procesamiento: {e}")
+
+            finally:
+                # Limpieza garantizada del archivo temporal
+                if tmp_file_path and os.path.exists(tmp_file_path):
+                    try:
+                        os.remove(tmp_file_path)
+                    except Exception:
+                        pass
 
 
 st.markdown("---")
