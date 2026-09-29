@@ -124,10 +124,11 @@ if uploaded_file is not None:
                     # 2. Subida del archivo con captura de error independiente
                     try:
                         archivo_gemini = client.files.upload(file=tmp_file_path)
+                        # 2. Pausa táctica de 2 segundos para que la API gratuita registre el archivo en memoria
+                        time.sleep(2)
                     except Exception as upload_err:
                         st.error(f"Error al cargar el archivo en los servidores de Google: {upload_err}")
                         st.stop()
-
                     # Prompt diseñado específicamente para OCR manuscrito en formatos
                     prompt = """
                     Este documento es un formato o formulario impreso cuyos campos han sido rellenados A MANO (manuscrito).
