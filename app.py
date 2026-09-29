@@ -48,26 +48,46 @@ with st.sidebar:
     )
 
 def generar_contenido_manuscrito(client, modelo, archivo, prompt):
-    """Llamada directa sin bucle para ver el error exacto de la API."""
-    try:
-        response = client.models.generate_content(
-            model=modelo,
-            contents=[archivo, prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.0,
-                tools=[],
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True
-                ),
-            ),
-        )
-        return response
-    except Exception as e:
-        # Esto imprimirá el error técnico exacto en un recuadro rojo
-        st.error(f"DETALLE TÉCNICO DE LA API: {e}")
-        raise e
+    """Maneja el límite de cuotas (429) y saturación (503) esperando los segundos necesarios."""
+    max_reintentos = 3
 
+    for intento in range(max_reintentos):
+        try:
+            response = client.models.generate_content(
+                model=modelo,
+                contents=[archivo, prompt],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0,
+                    tools=[],
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                ),
+            )
+            return response
+        except APIError as e:
+            if e.code in [429, 503] or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                tiempo_espera = 10 * (intento + 1)  # Espera 10s, 20s, 30s
+                st.warning(
+                    f"⏳ Límite de cuota alcanzado o servidor ocupado. Esperando {tiempo_espera}s para reintentar... (Intento {intento + 1}/{max_reintentos})"
+                )
+                time.sleep(tiempo_espera)
+            else:
+                raise e
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e):
+                tiempo_espera = 10 * (intento + 1)
+                st.warning(
+                    f"⏳ Reintentando conexión por cuota agotada ({tiempo_espera}s)..."
+                )
+                time.sleep(tiempo_espera)
+            else:
+                raise e
+
+    raise Exception(
+        "Se ha excedido el límite diario de peticiones gratuitas de esta API Key. Por favor ingresa una API Key nueva en la barra lateral."
+    )
 
 
 uploaded_file = st.file_uploader(
