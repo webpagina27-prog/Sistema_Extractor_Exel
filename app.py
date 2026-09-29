@@ -47,48 +47,27 @@ with st.sidebar:
         "• Evita sombras fuertes sobre los trazos manuscritos."
     )
 
-
 def generar_contenido_manuscrito(client, modelo, archivo, prompt):
-    """Ejecuta la llamada ajustando la temperatura a 0 para máxima precisión determinista."""
-    max_reintentos = 3
-
-    for intento in range(max_reintentos):
-        try:
-            response = client.models.generate_content(
-                model=modelo,
-                contents=[archivo, prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.0,  # Cero creatividad: fuerza precisión visual estricta
-                    tools=[],
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True
-                    ),
+    """Llamada directa sin bucle para ver el error exacto de la API."""
+    try:
+        response = client.models.generate_content(
+            model=modelo,
+            contents=[archivo, prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.0,
+                tools=[],
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
                 ),
-            )
-            return response
-        except APIError as e:
-            if e.code in [503, 429]:
-                tiempo_espera = (intento + 1) * 4
-                st.warning(
-                    f"Servidor ocupado. Reintentando en {tiempo_espera}s... (Intento {intento + 1}/{max_reintentos})"
-                )
-                time.sleep(tiempo_espera)
-            else:
-                raise e
-        except Exception as e:
-            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                tiempo_espera = (intento + 1) * 4
-                st.warning(
-                    f"Servidor saturado. Reintentando en {tiempo_espera}s..."
-                )
-                time.sleep(tiempo_espera)
-            else:
-                raise e
+            ),
+        )
+        return response
+    except Exception as e:
+        # Esto imprimirá el error técnico exacto en un recuadro rojo
+        st.error(f"DETALLE TÉCNICO DE LA API: {e}")
+        raise e
 
-    raise Exception(
-        "El servidor de Gemini tiene alta demanda en este momento. Por favor reintenta en un momento."
-    )
 
 
 uploaded_file = st.file_uploader(
