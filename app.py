@@ -28,33 +28,35 @@ with st.sidebar:
     )
 
     modelos_disponibles = []
-    
-    # Detección automática de modelos según tu API Key
+
     if api_key:
         try:
             client_temp = genai.Client(api_key=api_key)
-            # Consultar modelos reales directo de la API
-            lista_modelos = client_temp.models.list()
-            for m in lista_modelos:
-                # Filtrar solo los modelos capaces de generar contenido
-                if hasattr(m, 'supported_generation_methods') and "generateContent" in m.supported_generation_methods:
-                    nombre_limpio = m.name.replace("models/", "")
-                    modelos_disponibles.append(nombre_limpio)
-            
-            # Ordenar para dejar los modelos Flash/Pro más comunes al principio si existen
-            modelos_disponibles.sort(key=lambda x: ("flash" not in x, "pro" not in x, x))
-        except Exception:
-            # Si falla la consulta, dejamos valores estándar recientes
-            modelos_disponibles = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]
+            # Obtener lista real de modelos desde Google API
+            for m in client_temp.models.list():
+                # Filtrar solo los que sirven para generar contenido (multimodal/visión)
+                methods = getattr(m, 'supported_generation_methods', []) or []
+                if "generateContent" in methods:
+                    nombre = m.name
+                    if nombre.startswith("models/"):
+                        nombre = nombre.replace("models/", "")
+                    modelos_disponibles.append(nombre)
+        except Exception as err:
+            st.warning(f"No se pudieron consultar los modelos: {err}")
 
+    # Fallback con identificadores oficiales puros de la API
     if not modelos_disponibles:
-        modelos_disponibles = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]
+        modelos_disponibles = [
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp"
+        ]
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
         options=modelos_disponibles,
         index=0,
-        help="Modelos disponibles detectados directamente desde tu cuenta de Google AI Studio."
+        help="Modelos detectados directamente desde tu cuenta de Google AI Studio."
     )
 
     st.markdown("---")
@@ -87,11 +89,13 @@ def generar_contenido_manuscrito(client, modelo, archivo_part, prompt):
             return response
         except APIError as e:
             if "NOT_FOUND" in str(e) or e.code == 404:
-                st.error(f"❌ El modelo `{modelo}` no está disponible para tu API Key. Elige otro de la lista.")
+                st.error(
+                    f"❌ El modelo `{modelo}` no respondió adecuadamente. Prueba seleccionando otro modelo de la lista en la barra lateral."
+                )
                 st.stop()
             elif "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
                 st.error(
-                    "🛑 **Límite diario alcanzado en esta API Key.**  \n"
+                    "🛑 **Límite diario alcanzado en esta API Key (capa gratuita agotada).**  \n"
                     "Por favor ingresa una API Key diferente en la barra lateral para continuar."
                 )
                 st.stop()
