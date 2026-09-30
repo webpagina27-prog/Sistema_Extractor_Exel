@@ -6,7 +6,6 @@ import pandas as pd
 import streamlit as st
 from google import genai
 from google.genai import types
-from google.genai.errors import APIError
 
 st.set_page_config(
     page_title="Extractor IA: Formatos Manuscritos a Excel",
@@ -27,36 +26,14 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
-    modelos_disponibles = []
-
-    if api_key:
-        try:
-            client_temp = genai.Client(api_key=api_key)
-            # Obtener lista real de modelos desde Google API
-            for m in client_temp.models.list():
-                # Filtrar solo los que sirven para generar contenido (multimodal/visión)
-                methods = getattr(m, 'supported_generation_methods', []) or []
-                if "generateContent" in methods:
-                    nombre = m.name
-                    if nombre.startswith("models/"):
-                        nombre = nombre.replace("models/", "")
-                    modelos_disponibles.append(nombre)
-        except Exception as err:
-            st.warning(f"No se pudieron consultar los modelos: {err}")
-
-    # Fallback con identificadores oficiales puros de la API
-    if not modelos_disponibles:
-        modelos_disponibles = [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp"
-        ]
-
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=modelos_disponibles,
+        options=[
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp",
+        ],
         index=0,
-        help="Modelos detectados directamente desde tu cuenta de Google AI Studio."
     )
 
     st.markdown("---")
@@ -66,59 +43,6 @@ with st.sidebar:
         "• La imagen debe verse lo más derecha (alineada) posible.\n"
         "• Evita sombras fuertes sobre los trazos manuscritos."
     )
-
-
-def generar_contenido_manuscrito(client, modelo, archivo_part, prompt):
-    """Ejecuta la extracción enviando el documento directo en memoria."""
-    max_reintentos = 3
-
-    for intento in range(max_reintentos):
-        try:
-            response = client.models.generate_content(
-                model=modelo,
-                contents=[archivo_part, prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.0,
-                    tools=[],
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True
-                    ),
-                ),
-            )
-            return response
-        except APIError as e:
-            if "NOT_FOUND" in str(e) or e.code == 404:
-                st.error(
-                    f"❌ El modelo `{modelo}` no respondió adecuadamente. Prueba seleccionando otro modelo de la lista en la barra lateral."
-                )
-                st.stop()
-            elif "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
-                st.error(
-                    "🛑 **Límite diario alcanzado en esta API Key (capa gratuita agotada).**  \n"
-                    "Por favor ingresa una API Key diferente en la barra lateral para continuar."
-                )
-                st.stop()
-            elif e.code == 503 or "503" in str(e):
-                tiempo_espera = (intento + 1) * 5
-                st.warning(
-                    f"Servidor ocupado. Reintentando en {tiempo_espera}s... (Intento {intento + 1}/{max_reintentos})"
-                )
-                time.sleep(tiempo_espera)
-            else:
-                raise e
-        except Exception as e:
-            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
-                st.error("🛑 **Cuota diaria agotada.** Cambia la clave en la barra lateral.")
-                st.stop()
-            elif "503" in str(e) or "UNAVAILABLE" in str(e):
-                tiempo_espera = (intento + 1) * 5
-                st.warning(f"Servidor saturado. Reintentando en {tiempo_espera}s...")
-                time.sleep(tiempo_espera)
-            else:
-                raise e
-
-    raise Exception("El servidor no respondió tras los reintentos.")
 
 
 uploaded_file = st.file_uploader(
@@ -133,23 +57,15 @@ if uploaded_file is not None:
 
     if st.button("🚀 Extraer Datos Manuscritos", type="primary"):
         if not api_key:
-            st.error(
-                "Por favor, ingresa tu API Key de Gemini en la barra lateral."
-            )
+            st.error("Por favor, ingresa tu API Key de Gemini en la barra lateral.")
         else:
             try:
-                with st.spinner(
-                    "Analizando trazos manuscritos y convirtiendo a datos estructurados..."
-                ):
-                    client = genai.Client(api_key=api_key)
+                with st.spinner("Analizando trazos manuscritos y procesando..."):
+                    # Inicialización limpia del cliente
+                    client = genai.Client(api_key=api_key.strip())
 
                     documento_bytes = uploaded_file.getvalue()
                     mime_type = uploaded_file.type
-
-                    archivo_part = types.Part.from_bytes(
-                        data=documento_bytes,
-                        mime_type=mime_type
-                    )
 
                     prompt = """
                     Este documento es un formato o formulario impreso cuyos campos han sido rellenados A MANO (manuscrito).
@@ -162,11 +78,33 @@ if uploaded_file is not None:
                     5. Devuelve ÚNICAMENTE un arreglo JSON de objetos donde cada objeto represente un registro/fila con sus respectivos campos impresos como llaves y lo manuscrito como valores.
                     """
 
-                    response = generar_contenido_manuscrito(
-                        client, modelo_seleccionado, archivo_part, prompt
+                    # Llamada directa sin bloques try/catch restrictivos para ver el error real si llega a fallar
+                    response = client.models.generate_content(
+                        model=modelo_seleccionado,
+                        contents=[
+                            types.Part.from_bytes(
+                                data=documento_bytes,
+                                mime_type=mime_type,
+                            ),
+                            prompt,
+                        ],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.0,
+                        ),
                     )
 
-                    datos_json = json.loads(response.text)
+                    # Limpieza por si la respuesta trae marcadores de markdown
+                    texto_respuesta = response.text.strip()
+                    if texto_respuesta.startswith("```json"):
+                        texto_respuesta = texto_respuesta[7:]
+                    if texto_respuesta.startswith("```"):
+                        texto_respuesta = texto_respuesta[3:]
+                    if texto_respuesta.endswith("```"):
+                        texto_respuesta = texto_respuesta[:-3]
+                    texto_respuesta = texto_respuesta.strip()
+
+                    datos_json = json.loads(texto_respuesta)
 
                     if isinstance(datos_json, list):
                         df = pd.DataFrame(datos_json)
@@ -203,8 +141,7 @@ if uploaded_file is not None:
                     )
 
             except Exception as e:
-                st.error(f"Error durante el procesamiento: {e}")
-
+                st.error(f"❌ Error devuelto directamente por la API: {e}")
 
 st.markdown("---")
 st.caption("💻 **Sistema de Extractor IA** | Diseñado y desarrollado por **Alam E.T.N.**")
