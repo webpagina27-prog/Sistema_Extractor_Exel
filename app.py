@@ -29,11 +29,12 @@ with st.sidebar:
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=["gemini-3.8-flash", "gemini-3.6-flash"],
+        options=["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
         index=0,
         help=(
-            "• gemini-3.8-flash: La versión más reciente, rápida y precisa para OCR manuscrito (Gratuito).  \n\n"
-            "• gemini-3.6-flash: Modelo flash estándar anterior."
+            "• gemini-2.0-flash: Modelo rápido y preciso de última generación (Gratuito).  \n\n"
+            "• gemini-1.5-flash: Alternativa estable y ligera.  \n\n"
+            "• gemini-1.5-pro: Razonamiento avanzado para letras manuscritas complejas."
         ),
     )
 
@@ -66,7 +67,11 @@ def generar_contenido_manuscrito(client, modelo, archivo_part, prompt):
             )
             return response
         except APIError as e:
-            if "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
+            # Si el error es por modelo no encontrado, detenemos reintentos inútiles
+            if "NOT_FOUND" in str(e) or e.code == 404:
+                st.error(f"❌ El modelo `{modelo}` no está disponible en la API. Selecciona otro en la barra lateral.")
+                st.stop()
+            elif "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
                 st.error(
                     "🛑 **Límite diario alcanzado en esta API Key (capa gratuita agotada).**  \n"
                     "Por favor ingresa una API Key diferente en la barra lateral para continuar."
