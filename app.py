@@ -1,7 +1,6 @@
 import io
 import json
 import os
-import tempfile
 import time
 import pandas as pd
 import streamlit as st
@@ -28,14 +27,13 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
-    # Inclusión de opciones Flash y Pro en el selector
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=["gemini-3.6-flash", "gemini-3.1-pro-preview"],
+        options=["gemini-2.5-flash", "gemini-2.5-pro"],
         index=0,
         help=(
-            "• gemini-3.6-flash: Rápido y ligero para uso cotidiano (Gratuito).  \n\n"
-            "• gemini-3.1-pro-preview: Modelo Pro con razonamiento avanzado (De Paga - API con Facturacion Activa)."
+            "• gemini-2.5-flash: Rápido y ligero para uso cotidiano (Gratuito).  \n\n"
+            "• gemini-2.5-pro: Modelo Pro con razonamiento avanzado (De Paga - API con Facturación Activa)."
         ),
     )
 
@@ -47,15 +45,16 @@ with st.sidebar:
         "• Evita sombras fuertes sobre los trazos manuscritos."
     )
 
-def generar_contenido_manuscrito(client, modelo, archivo, prompt):
-    """Maneja el límite de cuotas (429) y saturación (503) esperando los segundos necesarios."""
+
+def generar_contenido_manuscrito(client, modelo, archivo_part, prompt):
+    """Ejecuta la extracción enviando el documento directo en memoria."""
     max_reintentos = 3
 
     for intento in range(max_reintentos):
         try:
             response = client.models.generate_content(
                 model=modelo,
-                contents=[archivo, prompt],
+                contents=[archivo_part, prompt],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.0,
@@ -67,27 +66,32 @@ def generar_contenido_manuscrito(client, modelo, archivo, prompt):
             )
             return response
         except APIError as e:
-            if e.code in [429, 503] or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                tiempo_espera = 10 * (intento + 1)  # Espera 10s, 20s, 30s
+            if "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
+                st.error(
+                    "🛑 **Límite diario alcanzado en esta API Key (capa gratuita agotada).**  \n"
+                    "Por favor ingresa una API Key diferente en la barra lateral para continuar."
+                )
+                st.stop()
+            elif e.code == 503 or "503" in str(e):
+                tiempo_espera = (intento + 1) * 5
                 st.warning(
-                    f"⏳ Límite de cuota alcanzado o servidor ocupado. Esperando {tiempo_espera}s para reintentar... (Intento {intento + 1}/{max_reintentos})"
+                    f"Servidor ocupado. Reintentando en {tiempo_espera}s... (Intento {intento + 1}/{max_reintentos})"
                 )
                 time.sleep(tiempo_espera)
             else:
                 raise e
         except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e):
-                tiempo_espera = 10 * (intento + 1)
-                st.warning(
-                    f"⏳ Reintentando conexión por cuota agotada ({tiempo_espera}s)..."
-                )
+            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                st.error("🛑 **Cuota diaria agotada.** Cambia la clave en la barra lateral.")
+                st.stop()
+            elif "503" in str(e) or "UNAVAILABLE" in str(e):
+                tiempo_espera = (intento + 1) * 5
+                st.warning(f"Servidor saturado. Reintentando en {tiempo_espera}s...")
                 time.sleep(tiempo_espera)
             else:
                 raise e
 
-    raise Exception(
-        "Se ha excedido el límite diario de peticiones gratuitas de esta API Key. Por favor ingresa una API Key nueva en la barra lateral."
-    )
+    raise Exception("El servidor no respondió tras los reintentos.")
 
 
 uploaded_file = st.file_uploader(
@@ -106,30 +110,21 @@ if uploaded_file is not None:
                 "Por favor, ingresa tu API Key de Gemini en la barra lateral."
             )
         else:
-            tmp_file_path = None
             try:
                 with st.spinner(
                     "Analizando trazos manuscritos y convirtiendo a datos estructurados..."
                 ):
-                    # 1. Escritura segura y aislamiento del archivo temporal
-                    suffix = os.path.splitext(uploaded_file.name)[1]
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=suffix
-                    ) as tmp_file:
-                        tmp_file.write(uploaded_file.getvalue())
-                        tmp_file_path = tmp_file.name
-
                     client = genai.Client(api_key=api_key)
 
-                    # 2. Subida del archivo con captura de error independiente
-                    try:
-                        archivo_gemini = client.files.upload(file=tmp_file_path)
-                        # 2. Pausa táctica de 2 segundos para que la API gratuita registre el archivo en memoria
-                        time.sleep(2)
-                    except Exception as upload_err:
-                        st.error(f"Error al cargar el archivo en los servidores de Google: {upload_err}")
-                        st.stop()
-                    # Prompt diseñado específicamente para OCR manuscrito en formatos
+                    # Conversión a bytes en memoria sin usar archivos temporales ni client.files.upload
+                    documento_bytes = uploaded_file.getvalue()
+                    mime_type = uploaded_file.type
+
+                    archivo_part = types.Part.from_bytes(
+                        data=documento_bytes,
+                        mime_type=mime_type
+                    )
+
                     prompt = """
                     Este documento es un formato o formulario impreso cuyos campos han sido rellenados A MANO (manuscrito).
                     
@@ -142,7 +137,7 @@ if uploaded_file is not None:
                     """
 
                     response = generar_contenido_manuscrito(
-                        client, modelo_seleccionado, archivo_gemini, prompt
+                        client, modelo_seleccionado, archivo_part, prompt
                     )
 
                     datos_json = json.loads(response.text)
@@ -163,7 +158,7 @@ if uploaded_file is not None:
                     st.success("¡Extracción de datos manuscritos completada!")
                     st.subheader("Vista Previa de los Datos")
 
-                    st.dataframe(df, width="stretch")
+                    st.dataframe(df, use_container_width=True)
 
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(
@@ -183,14 +178,6 @@ if uploaded_file is not None:
 
             except Exception as e:
                 st.error(f"Error durante el procesamiento: {e}")
-
-            finally:
-                # Limpieza garantizada del archivo temporal
-                if tmp_file_path and os.path.exists(tmp_file_path):
-                    try:
-                        os.remove(tmp_file_path)
-                    except Exception:
-                        pass
 
 
 st.markdown("---")
