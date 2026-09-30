@@ -26,15 +26,38 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
-    # Nota los prefijos 'models/' explícitos para resolver la ruta en v1beta
+    modelos_disponibles = []
+
+    if api_key.strip():
+        try:
+            # Forzamos api_version="v1" para evitar incompatibilidades con v1beta
+            client_temp = genai.Client(
+                api_key=api_key.strip(),
+                http_options=types.HttpOptions(api_version="v1")
+            )
+            # Consultamos la lista real de modelos disponibles para TU API Key
+            for m in client_temp.models.list():
+                methods = getattr(m, 'supported_generation_methods', []) or []
+                if "generateContent" in methods:
+                    modelos_disponibles.append(m.name)
+        except Exception as err:
+            st.warning(f"No se pudieron listar los modelos automáticamente: {err}")
+
+    # Lista de respaldo con nombres de versión exacta si falla la consulta
+    if not modelos_disponibles:
+        modelos_disponibles = [
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-flash-002",
+            "models/gemini-1.5-pro",
+            "models/gemini-1.5-pro-002",
+            "models/gemini-2.0-flash",
+        ]
+
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=[
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro",
-            "models/gemini-2.0-flash-exp",
-        ],
+        options=modelos_disponibles,
         index=0,
+        help="Modelos consultados directamente en la API v1 de tu cuenta."
     )
 
     st.markdown("---")
@@ -62,8 +85,11 @@ if uploaded_file is not None:
         else:
             try:
                 with st.spinner("Analizando trazos manuscritos y procesando..."):
-                    # Inicialización limpia del cliente
-                    client = genai.Client(api_key=api_key.strip())
+                    # Inicializamos el cliente forzando API v1
+                    client = genai.Client(
+                        api_key=api_key.strip(),
+                        http_options=types.HttpOptions(api_version="v1")
+                    )
 
                     documento_bytes = uploaded_file.getvalue()
                     mime_type = uploaded_file.type
