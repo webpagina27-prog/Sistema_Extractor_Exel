@@ -27,14 +27,15 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
+    # Identificadores exactos de la API de Google AI Studio
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+        options=["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"],
         index=0,
         help=(
-            "• gemini-2.0-flash: Modelo rápido y preciso de última generación (Gratuito).  \n\n"
-            "• gemini-1.5-flash: Alternativa estable y ligera.  \n\n"
-            "• gemini-1.5-pro: Razonamiento avanzado para letras manuscritas complejas."
+            "• gemini-1.5-flash: Estable, rápido y gratuito (Recomendado).  \n\n"
+            "• gemini-1.5-pro: Razonamiento avanzado para letra manuscrita difusa.  \n\n"
+            "• gemini-2.0-flash-exp: Modelo de prueba rápida."
         ),
     )
 
@@ -67,9 +68,8 @@ def generar_contenido_manuscrito(client, modelo, archivo_part, prompt):
             )
             return response
         except APIError as e:
-            # Si el error es por modelo no encontrado, detenemos reintentos inútiles
             if "NOT_FOUND" in str(e) or e.code == 404:
-                st.error(f"❌ El modelo `{modelo}` no está disponible en la API. Selecciona otro en la barra lateral.")
+                st.error(f"❌ El modelo `{modelo}` no existe en Google AI Studio. Selecciona otro de la lista.")
                 st.stop()
             elif "RESOURCE_EXHAUSTED" in str(e) or e.code == 429:
                 st.error(
