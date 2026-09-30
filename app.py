@@ -25,29 +25,40 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
+    # Definimos primero la lista base recomendada (3.8 al inicio)
+    modelos_predeterminados = [
+        "models/gemini-3.8-flash",
+        "models/gemini-3.8-pro",
+    ]
+
     modelos_disponibles = []
 
     if api_key.strip():
         try:
             genai.configure(api_key=api_key.strip())
-            # Consultar modelos activos directamente en la cuenta
+            # Consultamos los modelos habilitados en la cuenta
             for m in genai.list_models():
                 if "generateContent" in m.supported_generation_methods:
+                    # Damos preferencia a la serie 3.8 en la lista
                     modelos_disponibles.append(m.name)
         except Exception:
             pass
 
-    # Modelos oficiales vigentes (Serie 3.8)
-    if not modelos_disponibles:
-        modelos_disponibles = [
-            "models/gemini-3.8-flash",
-            "models/gemini-3.8-pro",
-        ]
+    # Si la consulta devuelve modelos, nos aseguramos de ordenar o mantener 3.8-flash arriba
+    if modelos_disponibles:
+        # Si 3.8-flash está en la lista consultada, lo ponemos al principio
+        if "models/gemini-3.8-flash" in modelos_disponibles:
+            modelos_disponibles.remove("models/gemini-3.8-flash")
+            modelos_disponibles.insert(0, "models/gemini-3.8-flash")
+        lista_final = modelos_disponibles
+    else:
+        lista_final = modelos_predeterminados
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=modelos_disponibles,
+        options=lista_final,
         index=0,
+        key="selector_modelo_gemini",
     )
 
     st.markdown("---")
