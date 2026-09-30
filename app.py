@@ -26,12 +26,13 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
+    # Nota los prefijos 'models/' explícitos para resolver la ruta en v1beta
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
         options=[
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro",
+            "models/gemini-2.0-flash-exp",
         ],
         index=0,
     )
@@ -78,7 +79,6 @@ if uploaded_file is not None:
                     5. Devuelve ÚNICAMENTE un arreglo JSON de objetos donde cada objeto represente un registro/fila con sus respectivos campos impresos como llaves y lo manuscrito como valores.
                     """
 
-                    # Llamada directa sin bloques try/catch restrictivos para ver el error real si llega a fallar
                     response = client.models.generate_content(
                         model=modelo_seleccionado,
                         contents=[
@@ -94,7 +94,6 @@ if uploaded_file is not None:
                         ),
                     )
 
-                    # Limpieza por si la respuesta trae marcadores de markdown
                     texto_respuesta = response.text.strip()
                     if texto_respuesta.startswith("```json"):
                         texto_respuesta = texto_respuesta[7:]
