@@ -4,8 +4,7 @@ import os
 import time
 import pandas as pd
 import streamlit as st
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 st.set_page_config(
     page_title="Extractor IA: Formatos Manuscritos a Excel",
@@ -30,34 +29,25 @@ with st.sidebar:
 
     if api_key.strip():
         try:
-            # Forzamos api_version="v1" para evitar incompatibilidades con v1beta
-            client_temp = genai.Client(
-                api_key=api_key.strip(),
-                http_options=types.HttpOptions(api_version="v1")
-            )
-            # Consultamos la lista real de modelos disponibles para TU API Key
-            for m in client_temp.models.list():
-                methods = getattr(m, 'supported_generation_methods', []) or []
-                if "generateContent" in methods:
+            genai.configure(api_key=api_key.strip())
+            # Consultar modelos activos directamente asignados a la API Key
+            for m in genai.list_models():
+                if "generateContent" in m.supported_generation_methods:
                     modelos_disponibles.append(m.name)
-        except Exception as err:
-            st.warning(f"No se pudieron listar los modelos automáticamente: {err}")
+        except Exception:
+            pass
 
-    # Lista de respaldo con nombres de versión exacta si falla la consulta
     if not modelos_disponibles:
         modelos_disponibles = [
             "models/gemini-1.5-flash",
-            "models/gemini-1.5-flash-002",
             "models/gemini-1.5-pro",
-            "models/gemini-1.5-pro-002",
-            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-exp",
         ]
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
         options=modelos_disponibles,
         index=0,
-        help="Modelos consultados directamente en la API v1 de tu cuenta."
     )
 
     st.markdown("---")
@@ -85,14 +75,15 @@ if uploaded_file is not None:
         else:
             try:
                 with st.spinner("Analizando trazos manuscritos y procesando..."):
-                    # Inicializamos el cliente forzando API v1
-                    client = genai.Client(
-                        api_key=api_key.strip(),
-                        http_options=types.HttpOptions(api_version="v1")
-                    )
+                    genai.configure(api_key=api_key.strip())
 
                     documento_bytes = uploaded_file.getvalue()
                     mime_type = uploaded_file.type
+
+                    cookie_file_part = {
+                        "mime_type": mime_type,
+                        "data": documento_bytes,
+                    }
 
                     prompt = """
                     Este documento es un formato o formulario impreso cuyos campos han sido rellenados A MANO (manuscrito).
@@ -105,20 +96,15 @@ if uploaded_file is not None:
                     5. Devuelve ÚNICAMENTE un arreglo JSON de objetos donde cada objeto represente un registro/fila con sus respectivos campos impresos como llaves y lo manuscrito como valores.
                     """
 
-                    response = client.models.generate_content(
-                        model=modelo_seleccionado,
-                        contents=[
-                            types.Part.from_bytes(
-                                data=documento_bytes,
-                                mime_type=mime_type,
-                            ),
-                            prompt,
-                        ],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            temperature=0.0,
-                        ),
+                    model = genai.GenerativeModel(
+                        model_name=modelo_seleccionado,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.0,
+                        },
                     )
+
+                    response = model.generate_content([cookie_file_part, prompt])
 
                     texto_respuesta = response.text.strip()
                     if texto_respuesta.startswith("```json"):
