@@ -1,10 +1,10 @@
 import io
 import json
 import os
-import time
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
+from google.api_core import exceptions
 
 st.set_page_config(
     page_title="Extractor IA: Formatos Manuscritos a Excel",
@@ -25,10 +25,18 @@ with st.sidebar:
         help="Obtén tu clave en Google AI Studio",
     )
 
-    # Definimos primero la lista base recomendada (3.8 al inicio)
-    modelos_predeterminados = [
-        "models/gemini-3.8-flash",
-        "models/gemini-3.8-pro",
+    # Lista verificada de modelos de 'Texto de salida' con cuota gratuita activa (20 o 500 RPD)
+    # Ordenados por precisión de lectura y razonamiento manuscrito
+    modelos_aprobados = [
+        "models/gemini-3.8-flash",      # Principal (Mayor precisión en OCR y razonamiento)
+        "models/gemini-3.7-flash",      # Respaldo 1 (20 RPD)
+        "models/gemini-3.6-flash",      # Respaldo 2 (20 RPD)
+        "models/gemini-3.5-flash",      # Respaldo 3 (20 RPD)
+        "models/gemini-3-flash",        # Respaldo 4 (20 RPD)
+        "models/gemini-2.5-flash",      # Respaldo 5 (20 RPD)
+        "models/gemini-3.5-flash-lite", # Alto volumen (500 RPD)
+        "models/gemini-3.1-flash-lite", # Alto volumen (500 RPD)
+        "models/gemini-2.5-flash-lite", # Respaldo Lite (20 RPD)
     ]
 
     modelos_disponibles = []
@@ -36,29 +44,36 @@ with st.sidebar:
     if api_key.strip():
         try:
             genai.configure(api_key=api_key.strip())
-            # Consultamos los modelos habilitados en la cuenta
-            for m in genai.list_models():
-                if "generateContent" in m.supported_generation_methods:
-                    # Damos preferencia a la serie 3.8 en la lista
-                    modelos_disponibles.append(m.name)
+            
+            # Consultamos los modelos disponibles en la cuenta de la API
+            modelos_api = [
+                m.name for m in genai.list_models()
+                if "generateContent" in m.supported_generation_methods
+            ]
+            
+            # Filtramos dejando SOLO los que están en nuestra lista de cuota gratuita activa
+            for mod in modelos_aprobados:
+                if mod in modelos_api:
+                    modelos_disponibles.append(mod)
+
         except Exception:
             pass
 
-    # Si la consulta devuelve modelos, nos aseguramos de ordenar o mantener 3.8-flash arriba
-    if modelos_disponibles:
-        # Si 3.8-flash está en la lista consultada, lo ponemos al principio
-        if "models/gemini-3.8-flash" in modelos_disponibles:
-            modelos_disponibles.remove("models/gemini-3.8-flash")
-            modelos_disponibles.insert(0, "models/gemini-3.8-flash")
-        lista_final = modelos_disponibles
-    else:
-        lista_final = modelos_predeterminados
+    # Si la API no ha respondido o no hay clave, usamos la lista predefinida limpia
+    if not modelos_disponibles:
+        modelos_disponibles = modelos_aprobados
+
+    # Nos aseguramos de que gemini-3.8-flash SIEMPRE quede fijo en el primer lugar (índice 0)
+    if "models/gemini-3.8-flash" in modelos_disponibles:
+        modelos_disponibles.remove("models/gemini-3.8-flash")
+        modelos_disponibles.insert(0, "models/gemini-3.8-flash")
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=lista_final,
+        options=modelos_disponibles,
         index=0,
         key="selector_modelo_gemini",
+        help="Si agotas las peticiones diarias de un modelo (Error 429), cambia a otro de la lista para continuar de inmediato."
     )
 
     st.markdown("---")
@@ -81,11 +96,12 @@ if uploaded_file is not None:
     )
 
     if st.button("🚀 Extraer Datos Manuscritos", type="primary"):
-        if not api_key:
+        if not api_key.strip():
             st.error("Por favor, ingresa tu API Key de Gemini en la barra lateral.")
         else:
             try:
-                with st.spinner("Analizando trazos manuscritos con Gemini 3.8..."):
+                nombre_modelo_corto = modelo_seleccionado.replace("models/", "")
+                with st.spinner(f"Analizando trazos manuscritos con {nombre_modelo_corto}..."):
                     genai.configure(api_key=api_key.strip())
 
                     documento_bytes = uploaded_file.getvalue()
@@ -162,15 +178,22 @@ if uploaded_file is not None:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
+            except exceptions.ResourceExhausted as e:
+                # Captura específica de cuota alcanzada (Error 429 / Rate Limit)
+                st.error(
+                    f"🛑 **Cuota agotada para el modelo `{modelo_seleccionado}`.**\n\n"
+                    "Has alcanzado el límite diario (o por minuto) de este modelo específico.\n\n"
+                    "👉 **Solución inmediata:** En el menú desplegable de la barra lateral, "
+                    "**selecciona otro modelo disponible** (por ejemplo: `gemini-3.7-flash` o `gemini-3.5-flash-lite`) "
+                    "y vuelve a presionar el botón para continuar sin esperar."
+                )
             except Exception as e:
                 err_msg = str(e)
                 if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                     st.error(
-                        "🛑 **Límite de cuota diaria alcanzado (20 peticiones/día por proyecto).**\n\n"
-                        "Para continuar inmediatamente:\n"
-                        "1. Ve a [Google AI Studio](https://aistudio.google.com/).\n"
-                        "2. Haz clic en **Create API key** > **Create API key in NEW project**.\n"
-                        "3. Pega esa nueva clave en la barra lateral para renovar tu cuota."
+                        f"🛑 **Cuota agotada para el modelo `{modelo_seleccionado}`.**\n\n"
+                        "👉 **Solución inmediata:** Selecciona otro modelo en el desplegable "
+                        "de la barra lateral para continuar trabajando gratis."
                     )
                 else:
                     st.error(f"❌ Error devuelto por la API: {e}")

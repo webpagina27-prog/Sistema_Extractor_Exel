@@ -1,5 +1,4 @@
 streamlit
-google-genai
 pandas
 openpyxl
 google-generativeai
