@@ -30,18 +30,18 @@ with st.sidebar:
     if api_key.strip():
         try:
             genai.configure(api_key=api_key.strip())
-            # Consultar modelos activos directamente asignados a la API Key
+            # Consultar modelos activos directamente en la cuenta
             for m in genai.list_models():
                 if "generateContent" in m.supported_generation_methods:
                     modelos_disponibles.append(m.name)
         except Exception:
             pass
 
+    # Modelos oficiales vigentes (Serie 3.8)
     if not modelos_disponibles:
         modelos_disponibles = [
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro",
-            "models/gemini-2.0-flash-exp",
+            "models/gemini-3.8-flash",
+            "models/gemini-3.8-pro",
         ]
 
     modelo_seleccionado = st.selectbox(
@@ -74,7 +74,7 @@ if uploaded_file is not None:
             st.error("Por favor, ingresa tu API Key de Gemini en la barra lateral.")
         else:
             try:
-                with st.spinner("Analizando trazos manuscritos y procesando..."):
+                with st.spinner("Analizando trazos manuscritos con Gemini 3.8..."):
                     genai.configure(api_key=api_key.strip())
 
                     documento_bytes = uploaded_file.getvalue()
@@ -152,7 +152,17 @@ if uploaded_file is not None:
                     )
 
             except Exception as e:
-                st.error(f"❌ Error devuelto directamente por la API: {e}")
+                err_msg = str(e)
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    st.error(
+                        "🛑 **Límite de cuota diaria alcanzado (20 peticiones/día por proyecto).**\n\n"
+                        "Para continuar inmediatamente:\n"
+                        "1. Ve a [Google AI Studio](https://aistudio.google.com/).\n"
+                        "2. Haz clic en **Create API key** > **Create API key in NEW project**.\n"
+                        "3. Pega esa nueva clave en la barra lateral para renovar tu cuota."
+                    )
+                else:
+                    st.error(f"❌ Error devuelto por la API: {e}")
 
 st.markdown("---")
 st.caption("💻 **Sistema de Extractor IA** | Diseñado y desarrollado por **Alam E.T.N.**")
