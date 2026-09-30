@@ -29,11 +29,11 @@ with st.sidebar:
 
     modelo_seleccionado = st.selectbox(
         "Selecciona el Modelo de Gemini:",
-        options=["gemini-2.5-flash", "gemini-2.5-pro"],
+        options=["gemini-3.8-flash", "gemini-3.6-flash"],
         index=0,
         help=(
-            "• gemini-2.5-flash: Rápido y ligero para uso cotidiano (Gratuito).  \n\n"
-            "• gemini-2.5-pro: Modelo Pro con razonamiento avanzado (De Paga - API con Facturación Activa)."
+            "• gemini-3.8-flash: La versión más reciente, rápida y precisa para OCR manuscrito (Gratuito).  \n\n"
+            "• gemini-3.6-flash: Modelo flash estándar anterior."
         ),
     )
 
@@ -116,7 +116,6 @@ if uploaded_file is not None:
                 ):
                     client = genai.Client(api_key=api_key)
 
-                    # Conversión a bytes en memoria sin usar archivos temporales ni client.files.upload
                     documento_bytes = uploaded_file.getvalue()
                     mime_type = uploaded_file.type
 
